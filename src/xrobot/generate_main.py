@@ -810,6 +810,8 @@ class Generator:
             for (name, declaration, value), (line, node) in zip(
                 entry["storage"], sources, strict=True
             ):
+                if stoppable and declaration.startswith("static "):
+                    declaration = declaration[len("static ") :]
                 tagged += _tag_value(
                     layout_declaration(declaration, name, value, ";", INDENT), line, node
                 )
@@ -897,8 +899,20 @@ class Generator:
         if local_templates:
             lines.append(f"template <{', '.join(local_templates)}>")
         fn_params = list(parameters)
+        running_name = "xrobot_running"
+        waited_name = "xrobot_waited"
+        rem_name = "xrobot_rem"
         if stoppable:
-            fn_params.append("const std::atomic<bool>& xrobot_running")
+            while running_name in template_names:
+                running_name += "_"
+            template_names.add(running_name)
+            while waited_name in template_names:
+                waited_name += "_"
+            template_names.add(waited_name)
+            while rem_name in template_names:
+                rem_name += "_"
+            template_names.add(rem_name)
+            fn_params.append(f"const std::atomic<bool>& {running_name}")
         fn_prefix = (
             "static inline void XRobotMain("
             if stoppable
@@ -918,15 +932,18 @@ class Generator:
         lines += self._monitor_checks(checks)
         sleep = config.get("settings", {}).get("monitor_sleep_ms", "1000")
         if stoppable:
-            lines += ["  while (xrobot_running.load(std::memory_order_acquire))", "  {"]
+            lines += [f"  while ({running_name}.load(std::memory_order_acquire))", "  {"]
             lines += [f"    {name}.OnMonitor();" for name in calls]
             if int(sleep) > 20:
                 lines += [
-                    f"    for (uint32_t xrobot_waited = 0;",
-                    f"         xrobot_waited < {sleep} && xrobot_running.load(std::memory_order_acquire);",
-                    "         xrobot_waited += 20)",
+                    f"    for (uint32_t {waited_name} = 0; {waited_name} < {sleep}; {waited_name} += 20)",
                     "    {",
-                    "      LibXR::Thread::Sleep(20);",
+                    f"      if (!{running_name}.load(std::memory_order_acquire))",
+                    "      {",
+                    "        break;",
+                    "      }",
+                    f"      const uint32_t {rem_name} = {sleep} - {waited_name};",
+                    f"      LibXR::Thread::Sleep({rem_name} < 20 ? {rem_name} : 20);",
                     "    }",
                 ]
             else:

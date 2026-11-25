@@ -480,7 +480,11 @@ class Structure(TestCase):
             ),
             (
                 "settings:\n  stoppable: yes\n",
-                "cfg.yaml: settings.stoppable: yes must be true or false",
+                "cfg.yaml: settings.stoppable: yes is not true or false",
+            ),
+            (
+                "settings:\n  stoppable: null\n",
+                "cfg.yaml: settings.stoppable must be true or false",
             ),
         ]
         for text, message in cases:

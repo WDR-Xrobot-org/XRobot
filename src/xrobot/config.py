@@ -746,11 +746,18 @@ def _check_settings(settings: object, errors: list[str]) -> None:
             )
         )
     stoppable = settings.get("stoppable", "false")
-    if not isinstance(stoppable, str) or stoppable not in ("true", "false"):
+    if not isinstance(stoppable, str):
         errors.append(
             tr(
-                f"settings.stoppable: {stoppable} must be true or false",
-                f"settings.stoppable: {stoppable} 必须是 true 或 false",
+                "settings.stoppable must be true or false",
+                "settings.stoppable 必须是 true 或 false",
+            )
+        )
+    elif stoppable not in ("true", "false"):
+        errors.append(
+            tr(
+                f"settings.stoppable: {stoppable} is not true or false",
+                f"settings.stoppable: {stoppable} 不是 true 或 false",
             )
         )
 
