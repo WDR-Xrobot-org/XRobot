@@ -785,9 +785,14 @@ class Generator:
                 else typ + "&"
             )
             parameters.append(f"{declaration} {record['name']}")
+        stoppable = (
+            not compile_check
+            and config.get("settings", {}).get("stoppable", "false") == "true"
+        )
         body: list = []  # 各实例的语句 / the statements of the instances
         back = object()  # 占位：#line 回到本头文件 / placeholder for "#line back into this header"
         directives = line_directives and location is not None
+        storage_prefix = "" if stoppable else "static "
         for entry in entries:
             if body:
                 body.append("")
@@ -808,14 +813,16 @@ class Generator:
                 tagged += _tag_value(
                     layout_declaration(declaration, name, value, ";", INDENT), line, node
                 )
-            head = f"static {entry['cpp_type']} {entry['id']}("
+            head = f"{storage_prefix}{entry['cpp_type']} {entry['id']}("
             if entry["arguments"]:
                 call = layout_call(head, entry["arguments"], ");", INDENT)
                 tagged += _tag_call(
                     call, head, entry["arguments"], entry["line"], entry.get("argument_lines", [])
                 )
             else:
-                tagged.append((f"  static {entry['cpp_type']} {entry['id']};", entry["line"]))
+                tagged.append(
+                    (f"  {storage_prefix}{entry['cpp_type']} {entry['id']};", entry["line"])
+                )
             if directives and entry["line"]:
                 body += _with_directives(tagged, _c_string(location[0]))
                 body.append(back)
@@ -850,6 +857,8 @@ class Generator:
             text += " std::is_void_v"
         names = [f'"{m["name"]}.hpp"' for m in selected.values()]
         names += ['"libxr.hpp"', '"thread.hpp"']
+        if stoppable:
+            names += ["<atomic>", "<cstdint>"]
         for header in config.get("constexpr_includes", []):
             header = header.strip()
             names.append(header if header.startswith("<") else f'"{header}"')
@@ -887,9 +896,17 @@ class Generator:
             return self._numbered(lines, back, None)
         if local_templates:
             lines.append(f"template <{', '.join(local_templates)}>")
+        fn_params = list(parameters)
+        if stoppable:
+            fn_params.append("const std::atomic<bool>& xrobot_running")
+        fn_prefix = (
+            "static inline void XRobotMain("
+            if stoppable
+            else "[[noreturn]] static inline void XRobotMain("
+        )
         lines += layout_call(
-            "[[noreturn]] static inline void XRobotMain(",
-            parameters,
+            fn_prefix,
+            fn_params,
             ")",
             0,
             hang_margin=3,
@@ -899,16 +916,40 @@ class Generator:
         if body:
             lines.append("")
         lines += self._monitor_checks(checks)
-        lines += ["  for (;;)", "  {"]
-        lines += [f"    {name}.OnMonitor();" for name in calls]
         sleep = config.get("settings", {}).get("monitor_sleep_ms", "1000")
-        lines += [f"    LibXR::Thread::Sleep({sleep});", "  }", "}", ""]
+        if stoppable:
+            lines += ["  while (xrobot_running.load(std::memory_order_acquire))", "  {"]
+            lines += [f"    {name}.OnMonitor();" for name in calls]
+            if int(sleep) > 20:
+                lines += [
+                    f"    for (uint32_t xrobot_waited = 0;",
+                    f"         xrobot_waited < {sleep} && xrobot_running.load(std::memory_order_acquire);",
+                    "         xrobot_waited += 20)",
+                    "    {",
+                    "      LibXR::Thread::Sleep(20);",
+                    "    }",
+                ]
+            else:
+                lines += [f"    LibXR::Thread::Sleep({sleep});"]
+            lines += ["  }", "}", ""]
+        else:
+            lines += ["  for (;;)", "  {"]
+            lines += [f"    {name}.OnMonitor();" for name in calls]
+            lines += [f"    LibXR::Thread::Sleep({sleep});", "  }", "}", ""]
         lines += [
             "// XR_REGISTER marks a name for the generator; XRobotMain binds and type-checks it.",
             "#define XR_REGISTER(name, ...) static_cast<void>(name)",
         ]
         call = "::XRobotMain" + (f"<{', '.join(actual_types)}>" if actual_types else "")
-        lines += layout_macro("XROBOT_MAIN", call, [r["name"] for r in views])
+        if stoppable:
+            lines += layout_macro(
+                "XROBOT_MAIN",
+                call,
+                [r["name"] for r in views] + ["running"],
+                ["running"],
+            )
+        else:
+            lines += layout_macro("XROBOT_MAIN", call, [r["name"] for r in views])
         if header_lines:
             lines += ["", *header_lines]
         return self._numbered(lines, back, (location[1] if location else None))

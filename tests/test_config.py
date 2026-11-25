@@ -470,13 +470,17 @@ class Structure(TestCase):
             (
                 "settings:\n  stack: 1024\n  heap: 1\n",
                 "cfg.yaml: settings: unknown key(s) stack, heap; "
-                "the only setting is monitor_sleep_ms",
+                "allowed settings are monitor_sleep_ms, stoppable",
             ),
             ("settings: [1]\n", "cfg.yaml: settings must be a mapping"),
             (
                 'settings:\n  monitor_sleep_ms: "10"\n',
                 'cfg.yaml: settings.monitor_sleep_ms: "10" is not an unsigned 32-bit decimal '
                 "millisecond count",
+            ),
+            (
+                "settings:\n  stoppable: yes\n",
+                "cfg.yaml: settings.stoppable: yes must be true or false",
             ),
         ]
         for text, message in cases:

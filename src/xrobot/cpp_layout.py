@@ -330,16 +330,19 @@ def _pack(
     return lines
 
 
-def layout_macro(name: str, call: str, arguments: list[str]) -> list[str]:
-    """#define name() call(arguments...)；放不下时调用另起一行并用续行符对齐。
-    #define name() call(arguments...); when it does not fit the call starts on its own line and
-    the line continuations are aligned.
+def layout_macro(
+    name: str, call: str, arguments: list[str], params: list[str] | None = None
+) -> list[str]:
+    """#define name(params...) call(arguments...)；放不下时调用另起一行并用续行符对齐。
+    #define name(params...) call(arguments...); when it does not fit the call starts on its own
+    line and the line continuations are aligned.
     """
-    one_line = f"#define {name}() {call}({', '.join(arguments)})"
+    param_str = ", ".join(params or [])
+    one_line = f"#define {name}({param_str}) {call}({', '.join(arguments)})"
     if len(one_line) <= COLUMN_LIMIT:
         return [one_line]
     body = layout_call(call + "(", arguments, ")", INDENT, extra=2)
-    lines = [f"#define {name}()"] + body
+    lines = [f"#define {name}({param_str})"] + body
     width = max(len(line) for line in lines[:-1]) + 1
     return [line.ljust(width) + "\\" for line in lines[:-1]] + [lines[-1]]
 
